@@ -127,7 +127,8 @@ function context() {
   }
   const rows = rankings();
   const online=game.players.filter(player=>connected.has(player.key));
-  return { connected, rows, online };
+  const top=rows.slice(0,10).map(({rank,name,facility,total})=>({rank,name,facility,total}));
+  return { connected, rows, online, top };
 }
 function view(role, key, ctx) {
   const question = game.questions[game.index];
@@ -154,7 +155,7 @@ function view(role, key, ctx) {
   }
   const player = role === 'player' ? playerFor(key) : undefined;
   const row = player && ctx.rows.find(item => item.id === player.id);
-  return { ...shared, me: row ? {
+  return { ...shared, ...(row && (showQuestion || game.phase==='ended') ? {top:ctx.top} : {}), me: row ? {
     name: row.name, facility: row.facility, total: row.total, round: row.round,
     rank: game.phase === 'ended' ? row.rank : null, hits: Object.values(player.hits[game.index] || {}).map(hit => hit.name)
   } : null };
@@ -507,6 +508,7 @@ server.headersTimeout=10000;
 expire();
 schedule();
 server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('Quiz listening on '+server.address().port));
+
 
 
 

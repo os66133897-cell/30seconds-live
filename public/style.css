@@ -8,3 +8,14 @@
 input,select,textarea{font-size:1rem}
 .play form>label{min-width:0}
 @media(max-width:400px){.play form{gap:.45rem}.play form button{padding-inline:.72rem}.fields>*{min-width:0}.row-title input{max-width:100%}}
+.header-tools{display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;justify-content:flex-end}
+.header-tools #soundToggle{min-height:33px;padding:.3rem .5rem;white-space:nowrap}
+.answer-tags{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:.42rem;color:var(--muted);font-size:.9rem}
+.answer-tags button{min-height:40px}
+.participant-leaders ol{list-style:none;margin:0;padding:0}
+.participant-leaders li{display:grid;grid-template-columns:3.2rem 1fr auto;gap:.5rem;align-items:center;padding:.55rem .25rem;border-bottom:1px solid var(--line)}
+.participant-leaders li>span{min-width:0;overflow-wrap:anywhere}
+.participant-leaders small{display:block;color:var(--muted);font-size:.8rem}
+.fireworks{position:fixed;inset:0;z-index:20;pointer-events:none;overflow:hidden}
+.fireworks i{position:absolute;width:8px;height:8px;border-radius:50%;box-shadow:0 0 9px currentColor}
+@media(prefers-reduced-motion:reduce){.fireworks{display:none}}

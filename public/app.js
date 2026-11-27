@@ -8,7 +8,75 @@ const labels = {closed:'모집 대기',open:'참가자 모집 중',ready:'라운
 const html = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const options = (facilities,value) => facilities.map(f=>'<option '+(f===value?'selected':'')+'>'+html(f)+'</option>').join('');
 const asList = value => value.split('|').map(s=>s.trim()).filter(Boolean);
-let state, config, feed, offset=0, connected=false, viewKey;
+let state, config, feed, offset=0, connected=false, viewKey, submittedRound=-1;
+const soundToggle=document.querySelector('#soundToggle');
+const motion=matchMedia('(prefers-reduced-motion: reduce)');
+const AudioEngine=window.AudioContext||window.webkitAudioContext;
+let audio;
+let soundEnabled=false;
+if(AudioEngine){
+  soundToggle.hidden=false;
+  soundToggle.onclick=async()=>{
+    if(soundEnabled){
+      soundEnabled=false;
+      await audio.suspend().catch(()=>{});
+    }else{
+      try{
+        audio ||= new AudioEngine();
+        await audio.resume();
+        soundEnabled=true;
+        chime('ready');
+      }catch{return;}
+    }
+    soundToggle.textContent=soundEnabled?'효과음 켬':'효과음 끔';
+    soundToggle.setAttribute('aria-pressed',String(soundEnabled));
+  };
+}
+function chime(phase){
+  if(!soundEnabled||audio?.state!=='running')return;
+  const tones={ready:[440],running:[523,659,784],paused:[440,330],roundEnd:[523,392],ended:[523,659,784,1047]};
+  const start=audio.currentTime;
+  for(const [index,frequency] of (tones[phase]||[523,659]).entries()){
+    const note=audio.createOscillator();
+    const volume=audio.createGain();
+    const at=start+index*.11;
+    note.type='sine';note.frequency.value=frequency;
+    volume.gain.setValueAtTime(.001,at);
+    volume.gain.exponentialRampToValueAtTime(.095,at+.025);
+    volume.gain.exponentialRampToValueAtTime(.001,at+.22);
+    note.connect(volume);volume.connect(audio.destination);
+    note.start(at);note.stop(at+.23);
+  }
+}
+function showTransition(phase,playSound){
+  if(playSound)chime(phase);
+  if(motion.matches)return;
+  (app.querySelector('.hero,.stage')||app).animate(
+    [{opacity:.55,transform:'translateY(7px) scale(.99)'},{opacity:1,transform:'translateY(0) scale(1)'}],
+    {duration:420,easing:'ease-out'});
+  if(phase!=='ended'||role==='admin')return;
+  const bursts=document.createElement('div');
+  bursts.className='fireworks';bursts.setAttribute('aria-hidden','true');
+  document.body.append(bursts);
+  const colors=['#fbe350','#83f0b7','#ff8fa3','#8fd5ff','#fbf6c5'];
+  for(let burst=0;burst<5;burst++){
+    for(let ray=0;ray<17;ray++){
+      const spark=document.createElement('i');
+      const angle=ray*2*Math.PI/17+burst*.25;
+      const radius=70+Math.random()*105;
+      spark.style.left=[24,73,49,17,83][burst]+'%';
+      spark.style.top=[36,31,21,60,53][burst]+'%';
+      spark.style.background=colors[(burst+ray)%colors.length];
+      bursts.append(spark);
+      spark.animate([
+        {opacity:1,transform:'translate(0,0) scale(.5)'},
+        {opacity:1,offset:.22},
+        {opacity:0,transform:'translate('+Math.cos(angle)*radius+'px,'+(Math.sin(angle)*radius+35)+'px) scale(.15)'}
+      ],{duration:1150,delay:burst*230,fill:'both',easing:'ease-out'});
+    }
+  }
+  setTimeout(()=>bursts.remove(),2400);
+}
 
 async function api(path,data) {
   const response=await fetch(path,data===undefined?undefined:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -27,10 +95,13 @@ function connect() {
     const incoming=JSON.parse(event.data);
     const reconnect=!connected;
     if (reconnect) offset=incoming.now-performance.now();
+    const previous=state;
+    if(previous?.index!==incoming.index || !incoming.me)submittedRound=-1;
     state=incoming; connected=true;
     if (reconnect) syncClock();
     connection.textContent='실시간 연결'; connection.classList.add('online');
     render(); tick();
+    if ((!previous && state.phase==='ended') || (previous && (previous.phase!==state.phase || previous.index!==state.index || Boolean(previous.me)!==Boolean(state.me)))) showTransition(state.phase,Boolean(previous));
   };
   feed.onerror=async()=>{
     connected=false;
@@ -61,7 +132,8 @@ function tick() {
   if (form) {
     const disabled=!connected || left<=0 || state.phase!=='running';
     form.elements.answer.readOnly=disabled;
-    form.querySelector('button').disabled=disabled || form.dataset.busy==='true';
+    form.querySelector('button[type=submit]').disabled=disabled || form.dataset.busy==='true';
+    form.querySelectorAll('[data-answer-tag]').forEach(button=>{button.disabled=disabled;});
   }
 }
 setInterval(tick,100);
@@ -82,6 +154,13 @@ const status=()=>'<span class="pill label">'+labels[state.phase]+'</span>';
 const round=()=>state.index>=0?'라운드 '+(state.index+1)+' / '+state.rounds:'';
 const count=()=>'<strong id="count"></strong>명 참가';
 const intro=()=>'<h1>'+title+'<span>'+subtitle+'</span></h1>';
+const rankCard=()=>'<section id="playerLeaders" class="card participant-leaders" hidden><h2>누적 순위 TOP 10</h2><ol id="playerTop"></ol></section>';
+function showPlayerRanks(){
+  const card=document.querySelector('#playerLeaders');
+  if(!card)return;
+  card.hidden=!(state.top?.length&&(state.phase==='ended'||submittedRound===state.index||state.me.hits?.length));
+  if(!card.hidden)document.querySelector('#playerTop').innerHTML=state.top.map(row=>'<li><b>'+row.rank+'위</b><span>'+html(row.name)+' <small>'+html(row.facility)+'</small></span><strong>'+row.total+'점</strong></li>').join('');
+}
 const notice=(id)=>'<p id="'+id+'" class="feedback" role="status"></p>';
 function render() {
   if (role==='admin') return renderAdmin();
@@ -100,13 +179,24 @@ function render() {
         catch(error) { message('feedback',error.message,'wrong'); button.disabled=false; }
       };
     } else if (state.phase==='ended') {
-      app.innerHTML='<section class="hero celebrate">'+status()+'<h1>퀴즈 완료!</h1><p>'+html(state.me.name)+' · '+html(state.me.facility)+'</p></section><section class="card scoreboard"><div><span>최종 순위</span><strong id="rank"></strong></div><div><span>총점</span><strong id="total"></strong></div></section>';
+      app.innerHTML='<section class="hero celebrate">'+status()+'<h1>퀴즈 완료!</h1><p>'+html(state.me.name)+' · '+html(state.me.facility)+'</p></section><section class="card scoreboard"><div><span>최종 순위</span><strong id="rank"></strong></div><div><span>총점</span><strong id="total"></strong></div></section>'+rankCard();
     } else {
       const active=['running','paused','roundEnd'].includes(state.phase);
-      app.innerHTML='<section class="hero">'+status()+'<p>'+html(state.me.name)+' · '+html(state.me.facility)+'</p><h1>'+html(active?state.title:state.phase==='ready'?'곧 시작합니다':'잠시만 기다려 주세요')+'</h1><p>'+html(round())+' · '+count()+'</p>'+(active?timer():'')+'</section><section class="card play"><div class="scoreboard"><div><span>라운드 점수</span><strong id="roundScore"></strong></div><div><span>누적 점수</span><strong id="total"></strong></div></div>'+(active?'<form id="answer"><label>정답 입력<input name="answer" required maxlength="160" autocomplete="off" placeholder="직원 이름 또는 이름/소속"></label><button>제출</button></form>'+notice('feedback')+'<h2>맞힌 정답</h2><ul class="hits" id="hits"></ul>':'<p>진행자가 라운드를 시작하면 문제가 나타납니다.</p>')+'</section>';
+      app.innerHTML='<section class="hero">'+status()+'<p>'+html(state.me.name)+' · '+html(state.me.facility)+'</p><h1>'+html(active?state.title:state.phase==='ready'?'곧 시작합니다':'잠시만 기다려 주세요')+'</h1><p>'+html(round())+' · '+count()+'</p>'+(active?timer():'')+'</section><section class="card play"><div class="scoreboard"><div><span>라운드 점수</span><strong id="roundScore"></strong></div><div><span>누적 점수</span><strong id="total"></strong></div></div>'+(active?'<form id="answer"><label>정답 입력<input name="answer" required maxlength="160" autocomplete="off" placeholder="직원 이름 또는 이름/소속"></label><button type="submit">제출</button><div class="answer-tags"><span>동명이인</span><button type="button" class="small ghost" data-answer-tag="A" aria-label="동명이인 A 붙이기">A 붙이기</button><button type="button" class="small ghost" data-answer-tag="B" aria-label="동명이인 B 붙이기">B 붙이기</button></div></form>'+notice('feedback')+'<h2>맞힌 정답</h2><ul class="hits" id="hits"></ul>':'<p>진행자가 라운드를 시작하면 문제가 나타납니다.</p>')+'</section>';
+      if(active)app.insertAdjacentHTML('beforeend',rankCard());
       const form=app.querySelector('#answer');
       if (form) {
         const input=form.elements.answer;
+        form.querySelectorAll('[data-answer-tag]').forEach(button=>{
+          button.onclick=()=>{
+            const [name,...facility]=input.value.trim().split('/');
+            if(!name.trim()){message('feedback','이름을 먼저 입력해 주세요.');input.focus();return;}
+            const tag=button.dataset.answerTag;
+            const base=name.trim().replace(/\s+[AB]$|\s*\([AB]\)$/i,'');
+            input.value=[base+' '+tag,...facility].join('/');
+            input.focus({preventScroll:true});
+          };
+        });
         let composing=false, composingEnter=false;
         input.addEventListener('compositionstart',()=>{composing=true;});
         input.addEventListener('compositionend',()=>{composing=false;});
@@ -125,6 +215,8 @@ function render() {
         try {
           const result=await api('/api/answer',{index:state.index,answer});
           if (!form.isConnected) return;
+          submittedRound=state.index;
+          showPlayerRanks();
           const words={correct:'정답! +'+result.points+'점',wrong:'오답입니다. 다시 도전하세요.',duplicate:'이미 맞힌 정답입니다.',ambiguous:'동명이인입니다. 이름 A 또는 이름/소속으로 입력하세요.'};
           message('feedback',words[result.status],result.status);
           if (result.status==='correct') {
@@ -145,6 +237,7 @@ function render() {
     const element=document.getElementById(id);
     if (element) element.textContent=value;
   }
+  showPlayerRanks();
   const hits=document.getElementById('hits');
   if (hits) hits.innerHTML=state.me.hits.map(item=>'<li>'+html(item)+'</li>').join('');
 }
@@ -479,6 +572,7 @@ else {
   app.innerHTML='<section class="hero">'+intro()+'<p>게임 서버에 연결 중입니다.</p></section>';
   connect();
 }
+
 
 
 
