@@ -1,0 +1,24 @@
+{
+  "name": "cheonan-quiz-show",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "iconv-lite": "0.7.0",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
+    "yauzl": "3.4.0"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  }
+}
